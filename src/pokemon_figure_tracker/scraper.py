@@ -13,7 +13,7 @@ USER_AGENT = (
     "(personal, non-commercial daily monitor; contact c.albornoz.flores@gmail.com)"
 )
 
-SEARCH_KEYWORDS = ["pokemon monster", "moncolle"]
+SEARCH_KEYWORDS = ["pokemon monster", "moncolle", "dream tomica pokemon"]
 PAGES_PER_KEYWORD = 2
 REQUEST_DELAY_SECONDS = 1.5
 

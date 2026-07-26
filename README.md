@@ -1,16 +1,16 @@
 # pokemon-figure-tracker
 
-Daily email digest of new Pokémon **Moncolle** / **Monster Collection** figure listings on
-[HLJ.com](https://www.hlj.com), so you can catch preorders before they sell out.
+Daily email digest of new Pokémon **Moncolle** / **Monster Collection** / **Dream Tomica** figure
+listings on [HLJ.com](https://www.hlj.com), so you can catch preorders before they sell out.
 
 Runs automatically once a day via GitHub Actions — no server or laptop required — and emails a
-digest of newly-listed figures (name, brand, price in JPY, release date, direct link) to your own
-Gmail address.
+digest of newly-listed figures (name, brand, price in JPY, release date, photo, direct link) to
+your own Gmail address.
 
 ## How it works
 
-1. Scrapes the first 2 pages of HLJ's search results for `pokemon monster` and `moncolle`
-   (sorted newest-first), e.g.
+1. Scrapes the first 2 pages of HLJ's search results for `pokemon monster`, `moncolle`, and
+   `dream tomica pokemon` (sorted newest-first), e.g.
    `https://www.hlj.com/search/?Word=moncolle&Sort=releaseDate+desc&Page=1`.
 2. Compares the product codes found against `data/seen_products.json` (committed to this repo).
 3. Anything not seen before gets its own product page fetched once for price/brand/release date,
