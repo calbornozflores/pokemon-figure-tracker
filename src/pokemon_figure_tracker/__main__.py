@@ -7,10 +7,12 @@ import os
 import sys
 import time
 
+import requests
+
 from . import notifier, state
 from .detail import fetch_product_detail
 from .notifier import NewFigure
-from .scraper import REQUEST_DELAY_SECONDS, fetch_current_listings
+from .scraper import REQUEST_DELAY_SECONDS, USER_AGENT, fetch_current_listings
 
 
 def run(dry_run: bool) -> int:
@@ -22,11 +24,11 @@ def run(dry_run: bool) -> int:
     if not seen:
         for code, item in current.items():
             state.record_seen(seen, code, item.name, item.url)
-        subject, text_body, html_body = notifier.build_baseline_email(len(current))
+        subject, text_body, message = notifier.build_baseline_email(len(current))
         print(text_body)
         if not dry_run:
             gmail_address, app_password = _require_credentials()
-            notifier.send_email(subject, text_body, html_body, gmail_address, app_password)
+            notifier.send_email(message, gmail_address, app_password)
             state.save_state(seen)
         else:
             print("[dry-run] Not saving state or sending email.")
@@ -41,16 +43,32 @@ def run(dry_run: bool) -> int:
 
     print(f"Found {len(new_codes)} new listing(s): {', '.join(new_codes)}")
 
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
+
     new_figures: list[NewFigure] = []
     for i, code in enumerate(new_codes):
         item = current[code]
         if i > 0:
             time.sleep(REQUEST_DELAY_SECONDS)
         try:
-            detail = fetch_product_detail(item.url)
+            detail = fetch_product_detail(item.url, session=session)
         except Exception as exc:  # noqa: BLE001 - keep the run going even if one detail fetch fails
             print(f"  warning: could not fetch detail for {code}: {exc}", file=sys.stderr)
             detail = None
+
+        image_bytes = None
+        if item.image_url and not dry_run:
+            time.sleep(REQUEST_DELAY_SECONDS)
+            try:
+                response = session.get(item.image_url, timeout=30)
+                response.raise_for_status()
+                image_bytes = response.content
+            except Exception as exc:  # noqa: BLE001 - a failed image fetch shouldn't drop the item
+                print(f"  warning: could not fetch image for {code}: {exc}", file=sys.stderr)
+        elif item.image_url:
+            print(f"  [dry-run] image available for {code}: {item.image_url}")
+
         new_figures.append(
             NewFigure(
                 code=code,
@@ -60,11 +78,12 @@ def run(dry_run: bool) -> int:
                 brand=detail.brand if detail else None,
                 price_jpy=detail.price_jpy if detail else None,
                 release_date=detail.release_date if detail else None,
+                image_bytes=image_bytes,
             )
         )
         state.record_seen(seen, code, item.name, item.url)
 
-    subject, text_body, html_body = notifier.build_new_items_email(new_figures)
+    subject, text_body, message = notifier.build_new_items_email(new_figures)
     print(text_body)
 
     if dry_run:
@@ -72,7 +91,7 @@ def run(dry_run: bool) -> int:
         return 0
 
     gmail_address, app_password = _require_credentials()
-    notifier.send_email(subject, text_body, html_body, gmail_address, app_password)
+    notifier.send_email(message, gmail_address, app_password)
     state.save_state(seen)
     return 0
 

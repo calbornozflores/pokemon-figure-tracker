@@ -21,12 +21,16 @@ BASE_URL = "https://www.hlj.com"
 SEARCH_URL = "https://www.hlj.com/search/"
 
 
+NO_IMAGE_MARKER = "noimage.png"
+
+
 @dataclass
 class ListingItem:
     code: str
     name: str
     status: str
     url: str
+    image_url: str = ""
 
 
 def _search_url(keyword: str, page: int) -> str:
@@ -60,6 +64,14 @@ def _parse_listing_page(html: str) -> dict[str, ListingItem]:
             code_lower = code.lower()
             if slug == code_lower or slug.endswith("-" + code_lower):
                 items[code]["url"] = BASE_URL + href
+                img = a.find("img")
+                img_src = (img.get("src") or "").strip() if img else ""
+                if img_src and NO_IMAGE_MARKER not in img_src.lower():
+                    if img_src.startswith("//"):
+                        img_src = "https:" + img_src
+                    elif img_src.startswith("/"):
+                        img_src = BASE_URL + img_src
+                    items[code]["image_url"] = img_src
                 break
 
     return {
@@ -68,6 +80,7 @@ def _parse_listing_page(html: str) -> dict[str, ListingItem]:
             name=fields.get("name", ""),
             status=fields.get("status", ""),
             url=fields.get("url", ""),
+            image_url=fields.get("image_url", ""),
         )
         for code, fields in items.items()
         if fields.get("name") and fields.get("url")
