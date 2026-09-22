@@ -14,6 +14,11 @@ USER_AGENT = (
 )
 
 SEARCH_KEYWORDS = ["pokemon monster", "moncolle", "dream tomica pokemon"]
+# 2 pages x ~24 = the ~48 most recently *listed* items per keyword, because SORT_ORDER is
+# "Date Added". That window covered the whole 26-day outage of Aug-Sep 2026 with room to
+# spare (all 21 unreported items sat in the top 24 of "moncolle"). Going deeper reaches
+# back into the 2024 back catalogue - products that are new to the tracker but not new
+# listings - so depth is left to --pages for a deliberate catch-up instead.
 PAGES_PER_KEYWORD = 2
 REQUEST_DELAY_SECONDS = 1.5
 
@@ -33,8 +38,19 @@ class ListingItem:
     image_url: str = ""
 
 
+# HLJ's "Date Added" sort (the #sort-list option value on a search page). "releaseDate desc"
+# was used originally, but it orders by *release* date: an item listed today whose release is
+# near-term or already past sorts below hundreds of far-future preorders, falls outside the
+# pages fetched below, and - because seen state is never revisited - is then never reported
+# at all, rather than just late.
+SORT_ORDER = "rss desc"
+
+
 def _search_url(keyword: str, page: int) -> str:
-    return f"{SEARCH_URL}?Word={keyword.replace(' ', '+')}&Sort=releaseDate+desc&Page={page}"
+    return (
+        f"{SEARCH_URL}?Word={keyword.replace(' ', '+')}"
+        f"&Sort={SORT_ORDER.replace(' ', '+')}&Page={page}"
+    )
 
 
 def _parse_listing_page(html: str) -> dict[str, ListingItem]:
@@ -87,24 +103,40 @@ def _parse_listing_page(html: str) -> dict[str, ListingItem]:
     }
 
 
-def fetch_current_listings(session: requests.Session | None = None) -> dict[str, ListingItem]:
-    """Scrape the first PAGES_PER_KEYWORD pages of each SEARCH_KEYWORDS query.
+def fetch_current_listings(
+    session: requests.Session | None = None, pages: int | None = None
+) -> dict[str, ListingItem]:
+    """Scrape the first ``pages`` (default PAGES_PER_KEYWORD) pages of each keyword query.
 
     Returns a dict of product code -> ListingItem, deduped across keywords.
     """
     session = session or requests.Session()
     session.headers["User-Agent"] = USER_AGENT
+    pages = pages or PAGES_PER_KEYWORD
 
     all_items: dict[str, ListingItem] = {}
     first_request = True
     for keyword in SEARCH_KEYWORDS:
-        for page in range(1, PAGES_PER_KEYWORD + 1):
+        for page in range(1, pages + 1):
             if not first_request:
                 time.sleep(REQUEST_DELAY_SECONDS)
             first_request = False
 
             response = session.get(_search_url(keyword, page), timeout=30)
             response.raise_for_status()
-            all_items.update(_parse_listing_page(response.text))
+            page_items = _parse_listing_page(response.text)
+            if not page_items:
+                if page > 1:
+                    # Fewer results than PAGES_PER_KEYWORD pages ("dream tomica pokemon"
+                    # fits on one). Normal - stop paging this keyword.
+                    break
+                # An empty first page is different: a silent zero used to mean "Scraped 0
+                # unique listings", no new codes, no email and a green run - forever.
+                # Fail so the run goes red instead.
+                raise RuntimeError(
+                    f"parsed 0 listings from {keyword!r} page 1 "
+                    "- HLJ's search page layout may have changed"
+                )
+            all_items.update(page_items)
 
     return all_items

@@ -30,3 +30,16 @@ def record_seen(state: dict[str, dict], code: str, name: str, url: str) -> None:
         "url": url,
         "first_seen": date.today().isoformat(),
     }
+
+
+def last_find(state: dict[str, dict]) -> tuple[str | None, int]:
+    """Newest ``first_seen`` date across the state, and how many items share it.
+
+    Used by the weekly heartbeat email; the per-item ``first_seen`` already records
+    this, so no extra state file is needed.
+    """
+    dates = [entry["first_seen"] for entry in state.values() if entry.get("first_seen")]
+    if not dates:
+        return None, 0
+    newest = max(dates)
+    return newest, dates.count(newest)

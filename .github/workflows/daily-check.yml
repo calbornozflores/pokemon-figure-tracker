@@ -2,10 +2,13 @@ name: Daily HLJ figure check
 
 on:
   schedule:
-    # Chile is UTC-3 (CLST, summer) or UTC-4 (CLT, standard). Both triggers fire daily;
-    # the guard step below only lets the one matching current Chile local time = 08:00 proceed.
+    # Single unguarded trigger: 11:00 UTC = 07:00 (CLT) or 08:00 (CLST) Chile time.
+    # There used to be two crons plus a step that only proceeded when the Chile-local
+    # hour was exactly 08. GitHub dispatches scheduled runs hours late, so from
+    # 2026-08-27 to 2026-09-21 that guard skipped every single run - ~50 green,
+    # six-second runs that never scraped, and 21 new listings were never reported.
+    # Nothing clock-dependent may stand between the trigger and the scrape again.
     - cron: "0 11 * * *"
-    - cron: "0 12 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -14,49 +17,30 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Guard - only proceed near 8am Chile time (or on manual trigger)
-        id: guard
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          hour=$(TZ=America/Santiago date +%H)
-          if [ "$hour" = "08" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout
-        if: steps.guard.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Install uv
-        if: steps.guard.outputs.run == 'true'
         uses: astral-sh/setup-uv@v3
 
       - name: Set up Python 3.12
-        if: steps.guard.outputs.run == 'true'
         run: uv python install 3.12
 
       - name: Install dependencies
-        if: steps.guard.outputs.run == 'true'
         run: uv sync
 
       - name: Run tracker
-        if: steps.guard.outputs.run == 'true'
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: uv run python -m pokemon_figure_tracker
 
       - name: Commit updated state
-        if: steps.guard.outputs.run == 'true'
         run: |
           git config user.name "pokemon-figure-tracker-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/seen_products.json
           git diff --cached --quiet || git commit -m "chore: update seen products"
-          git push
+          git pull --rebase --autostash && git push

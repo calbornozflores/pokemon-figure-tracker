@@ -8,6 +8,8 @@ from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+from .scraper import PAGES_PER_KEYWORD, SEARCH_KEYWORDS
+
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 
@@ -103,6 +105,45 @@ def build_baseline_email(item_count: int) -> tuple[str, str, MIMEMultipart]:
         "From tomorrow onward you'll only be emailed about genuinely new listings."
     )
     html_body = f"<p>{text_body}</p>"
+
+    message = MIMEMultipart("alternative")
+    message["Subject"] = subject
+    message.attach(MIMEText(text_body, "plain"))
+    message.attach(MIMEText(html_body, "html"))
+
+    return subject, text_body, message
+
+
+def build_heartbeat_email(
+    tracked_count: int,
+    scraped_count: int,
+    last_find_date: str | None,
+    last_find_count: int,
+) -> tuple[str, str, MIMEMultipart]:
+    """Weekly "still alive" mail, sent even when there is nothing new.
+
+    A quiet day and a day the workflow never ran look identical from the inbox - that is
+    how a month of skipped runs went unnoticed. With this, a week of total silence is
+    itself the alarm.
+    """
+    subject = "HLJ tracker weekly check-in"
+    if last_find_date:
+        last_line = f"Last new find: {last_find_date} ({last_find_count} item(s))."
+    else:
+        last_line = "No new find recorded yet."
+    text_body = "\n".join(
+        [
+            "0 new listings today.",
+            f"{tracked_count} products tracked.",
+            last_line,
+            f"Scraped {scraped_count} listings across "
+            f"{len(SEARCH_KEYWORDS)} keywords, {PAGES_PER_KEYWORD} pages each.",
+            "",
+            "This is the weekly check-in - it means the tracker is running. If a whole",
+            "week goes by with no mail at all, something is broken.",
+        ]
+    )
+    html_body = "<p>" + text_body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
 
     message = MIMEMultipart("alternative")
     message["Subject"] = subject

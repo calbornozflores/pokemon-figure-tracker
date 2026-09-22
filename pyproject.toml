@@ -20,4 +20,6 @@ build-backend = "hatchling.build"
 packages = ["src/pokemon_figure_tracker"]
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=9.1.1",
+]

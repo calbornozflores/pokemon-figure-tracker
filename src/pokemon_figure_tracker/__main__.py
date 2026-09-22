@@ -6,20 +6,43 @@ import argparse
 import os
 import sys
 import time
+from datetime import date
 
 import requests
 
 from . import notifier, state
 from .detail import fetch_product_detail
 from .notifier import NewFigure
-from .scraper import REQUEST_DELAY_SECONDS, USER_AGENT, fetch_current_listings
+from .scraper import (
+    PAGES_PER_KEYWORD,
+    REQUEST_DELAY_SECONDS,
+    USER_AGENT,
+    fetch_current_listings,
+)
+
+# Monday. On this weekday the run mails even with nothing new, so a silent week is a signal.
+HEARTBEAT_WEEKDAY = 0
 
 
-def run(dry_run: bool) -> int:
-    current = fetch_current_listings()
+def run(dry_run: bool, absorb: bool = False, pages: int | None = None) -> int:
+    current = fetch_current_listings(pages=pages)
     print(f"Scraped {len(current)} unique listings across all keywords/pages.")
 
     seen = state.load_state()
+
+    if absorb:
+        # Widening PAGES_PER_KEYWORD or adding a keyword pulls in products that have sat
+        # on HLJ for years; they are new to the tracker but not new listings, and mailing
+        # them would bury the items that matter. Fold them into state quietly instead.
+        added = [code for code in current if code not in seen]
+        for code in added:
+            state.record_seen(seen, code, current[code].name, current[code].url)
+        print(f"Absorbed {len(added)} previously-unseen code(s) without emailing.")
+        if dry_run:
+            print("[dry-run] Not saving state.")
+        else:
+            state.save_state(seen)
+        return 0
 
     if not seen:
         for code, item in current.items():
@@ -37,6 +60,18 @@ def run(dry_run: bool) -> int:
     new_codes = sorted(code for code in current if code not in seen)
     if not new_codes:
         print("No new listings today.")
+        if date.today().weekday() == HEARTBEAT_WEEKDAY:
+            last_date, last_count = state.last_find(seen)
+            _, text_body, message = notifier.build_heartbeat_email(
+                tracked_count=len(seen),
+                scraped_count=len(current),
+                last_find_date=last_date,
+                last_find_count=last_count,
+            )
+            print(text_body)
+            if not dry_run:
+                gmail_address, app_password = _require_credentials()
+                notifier.send_email(message, gmail_address, app_password)
         if not dry_run:
             state.save_state(seen)
         return 0
@@ -116,8 +151,22 @@ def main() -> None:
         action="store_true",
         help="Scrape and print what would be emailed, without sending mail or writing state.",
     )
+    parser.add_argument(
+        "--absorb",
+        action="store_true",
+        help="Record everything currently scraped as seen without emailing. Use after "
+        "widening PAGES_PER_KEYWORD or adding a search keyword, so the back catalogue "
+        "those changes expose doesn't arrive as a digest of fake 'new' listings.",
+    )
+    parser.add_argument(
+        "--pages",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"Pages to scrape per keyword (default {PAGES_PER_KEYWORD}).",
+    )
     args = parser.parse_args()
-    sys.exit(run(dry_run=args.dry_run))
+    sys.exit(run(dry_run=args.dry_run, absorb=args.absorb, pages=args.pages))
 
 
 if __name__ == "__main__":
